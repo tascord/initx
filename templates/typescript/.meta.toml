@@ -1,0 +1,6 @@
+[template]
+name = "Typescript"
+description = "Typescript project with Nodejs & NPM"
+alias = ["ts", "js", "node"]
+ignore = ["node_modules/", "dist/"]
+commands = ["git init ."]

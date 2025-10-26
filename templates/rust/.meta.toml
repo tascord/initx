@@ -1,0 +1,6 @@
+[template]
+name = "Rust"
+description = "Rust project"
+alias = ["rs"]
+commands = ["cargo init --bin $location"]
+ignore = []
