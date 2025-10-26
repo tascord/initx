@@ -1,7 +1,0 @@
-/home/flora/Projects/init/.devenv/flake.json
-/home/flora/Projects/init/.devenv.flake.nix
-/home/flora/Projects/init/.env
-/home/flora/Projects/init/devenv.local.nix
-/home/flora/Projects/init/devenv.lock
-/home/flora/Projects/init/devenv.nix
-/home/flora/Projects/init/devenv.yaml
