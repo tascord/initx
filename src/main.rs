@@ -2,7 +2,7 @@ use std::{
     collections::BTreeMap,
     env::current_dir,
     fmt::Display,
-    fs::{self, DirEntry, create_dir_all, exists, remove_dir_all, write},
+    fs::{self, create_dir_all, exists, remove_dir_all, write},
     path::{Path, PathBuf},
     process,
     sync::LazyLock,
@@ -29,7 +29,7 @@ fn create_defaults() {
         match e {
             include_dir::DirEntry::Dir(dir) => {
                 v.push(e.clone());
-                dir.entries().into_iter().for_each(|e| delve(e, v));
+                dir.entries().iter().for_each(|e| delve(e, v));
             }
             include_dir::DirEntry::File(_) => {
                 v.push(e.clone());
@@ -43,7 +43,7 @@ fn create_defaults() {
 
     for entry in entries {
         let out_path = path.join(entry.path());
-        if let Some(_) = entry.as_dir() {
+        if entry.as_dir().is_some() {
             println!(
                 "» {} {}",
                 "Creating dir".dimmed(),
@@ -77,7 +77,7 @@ fn create_defaults() {
 
 static TEMPLATES: LazyLock<Vec<Template>> = LazyLock::new(|| {
     let path = template_dir();
-    if !exists(&path).expect(&format!("Failed to open {}", path.display())) {
+    if !exists(&path).unwrap_or_else(|_| panic!("Failed to open {}", path.display())) {
         fs::create_dir_all(&path).unwrap_or_else(|e| {
             bail(format!(
                 "Failed to create templates directory {}: {}",
@@ -198,7 +198,7 @@ fn main() {
         (None, Some(t)) => {
             let t = t.to_lowercase();
             let template = TEMPLATES.iter().find(|template| {
-                template.alias.iter().any(|a| *a == t) || template.name.to_lowercase() == t
+                template.alias.contains(&t) || template.name.to_lowercase() == t
             });
 
             if !args.force
@@ -303,7 +303,7 @@ fn main() {
                         .unwrap();
                 }
             } else {
-                bail(format!("No template found for {}", t))
+                bail(format!("No template found for {t}"))
             }
         }
 
@@ -384,13 +384,11 @@ fn main() {
                 ),
                 (
                     ".envrc",
-                    format!(
-                        r#"
+                    r#"
                         export DIRENV_WARN_TIMEOUT=20s
                         eval "$(devenv direnvrc)"
                         use devenv
-                        "#
-                    ),
+                        "#.to_string(),
                 ),
                 (
                     "devenv.nix",
