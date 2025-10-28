@@ -15,5 +15,7 @@
       src = ./.;
       cargoLock.lockFile = ./Cargo.lock;
     };
+
+    packages.default = self.packages.${system}.initx;
   });
 }
