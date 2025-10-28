@@ -1,14 +1,94 @@
 use std::{
-    collections::BTreeMap, env::current_dir, fmt::Display, fs, path::Path, process, sync::LazyLock,
+    collections::BTreeMap,
+    env::current_dir,
+    fmt::Display,
+    fs::{self, DirEntry, create_dir_all, exists, remove_dir_all, write},
+    path::{Path, PathBuf},
+    process,
+    sync::LazyLock,
 };
 
 use clap::{Parser, Subcommand};
 use colored::Colorize;
 use dialoguer::{Input, theme::ColorfulTheme};
+use include_dir::{Dir, include_dir};
 use serde::{Deserialize, Serialize};
 
+static DEFAULT_TEMPLATES: Dir = include_dir!("templates");
+fn template_dir() -> PathBuf {
+    Path::new(&std::env::var("HOME").expect("Couldn't get HOME from env"))
+        .join(".config")
+        .join("templates")
+}
+
+fn create_defaults() {
+    let path = template_dir();
+
+    let mut entries = Vec::new();
+    fn delve(e: &include_dir::DirEntry<'static>, v: &mut Vec<include_dir::DirEntry<'static>>) {
+        match e {
+            include_dir::DirEntry::Dir(dir) => {
+                v.push(e.clone());
+                dir.entries().into_iter().for_each(|e| delve(e, v));
+            }
+            include_dir::DirEntry::File(_) => {
+                v.push(e.clone());
+            }
+        }
+    }
+
+    for e in DEFAULT_TEMPLATES.entries() {
+        delve(e, &mut entries);
+    }
+
+    for entry in entries {
+        let out_path = path.join(entry.path());
+        if let Some(_) = entry.as_dir() {
+            println!(
+                "» {} {}",
+                "Creating dir".dimmed(),
+                out_path.display().to_string().bright_cyan()
+            );
+            fs::create_dir_all(&out_path).unwrap_or_else(|e| {
+                bail(format!(
+                    "Failed to create directory {}: {}",
+                    out_path.display(),
+                    e
+                ))
+            });
+        }
+
+        if let Some(file) = entry.as_file() {
+            println!(
+                "» {} {}",
+                "Writing file".dimmed(),
+                out_path.display().to_string().bright_cyan()
+            );
+            fs::write(&out_path, file.contents()).unwrap_or_else(|e| {
+                bail(format!(
+                    "Failed to write file {}: {}",
+                    out_path.display(),
+                    e
+                ))
+            });
+        }
+    }
+}
+
 static TEMPLATES: LazyLock<Vec<Template>> = LazyLock::new(|| {
-    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("templates");
+    let path = template_dir();
+    if !exists(&path).expect(&format!("Failed to open {}", path.display())) {
+        fs::create_dir_all(&path).unwrap_or_else(|e| {
+            bail(format!(
+                "Failed to create templates directory {}: {}",
+                path.display(),
+                e
+            ))
+        });
+
+        create_defaults();
+    }
+
     fs::read_dir(path)
         .expect("Failed to get templates directory")
         .filter_map(Result::ok)
@@ -44,10 +124,13 @@ pub struct Args {
     #[command(subcommand)]
     pub command: Option<Command>,
 
-    #[arg(help = "Skip name prompt for a template", short)]
+    #[arg(help = "Skip name prompt", short)]
     pub name: Option<String>,
 
-    #[arg(help = "Whether to init in a dirty directory", short)]
+    #[arg(
+        help = "Whether to init in a dirty directory / override existing template",
+        short
+    )]
     pub force: bool,
 
     #[arg(value_name = "TEMPLATE", help = "Template to install")]
@@ -56,7 +139,12 @@ pub struct Args {
 
 #[derive(Subcommand, Clone, Debug)]
 pub enum Command {
+    #[command(about = "List all installed templates")]
     List,
+    #[command(about = "Create a new template")]
+    Create,
+    #[command(about = "Install default template (done on first-run)")]
+    Defaults,
 }
 
 fn bail(msg: impl Display) -> ! {
@@ -103,7 +191,6 @@ fn apply_template(s: impl Display, vars: &BTreeMap<&str, String>) -> String {
 
 fn main() {
     let args = Args::parse();
-
     match (args.command, args.template) {
         (None, None) => bail("You need to give me something to do"),
         (Some(_), Some(_)) => bail("Can't install a template and run a command simultaneously"),
@@ -221,7 +308,13 @@ fn main() {
         }
 
         (Some(Command::List), None) => {
-            println!("» {}", "Template List".bright_cyan());
+            println!(
+                "» {} {}{}{}",
+                "Template List".bright_cyan(),
+                "(".dimmed(),
+                template_dir().display(),
+                ")".dimmed()
+            );
             for template in TEMPLATES.iter() {
                 println!(
                     "- {} {}",
@@ -243,6 +336,124 @@ fn main() {
                     }
                 )
             }
+        }
+
+        (Some(Command::Create), None) => {
+            let name = Input::with_theme(&ColorfulTheme::default())
+                .with_prompt("Project Name")
+                .validate_with(|input: &String| -> Result<(), &str> {
+                    if input.trim().is_empty() {
+                        Err("Name cannot be empty")
+                    } else {
+                        Ok(())
+                    }
+                })
+                .interact_text()
+                .unwrap();
+
+            let path = template_dir().join(name.to_lowercase());
+
+            if args.force {
+                let _ = remove_dir_all(&path);
+            }
+
+            if exists(&path).unwrap_or(true) {
+                bail(format!(
+                    "{} already exists, or is inaccessible",
+                    path.display()
+                ));
+            }
+
+            create_dir_all(&path).unwrap_or_else(|e| {
+                bail(format!("Failed to create folder {}: {e}", path.display()));
+            });
+
+            let files = BTreeMap::from_iter([
+                (
+                    ".meta.toml",
+                    format!(
+                        r#"
+                        [template]
+                        name = "{name}"
+                        description = "New template"
+                        alias = []      # Alias' for initx
+                        commands = []   # Commands to run after copying files (probably do git)
+                        ignore = []     # Files to add to .gitignore (will create if needed)
+                        "#
+                    ),
+                ),
+                (
+                    ".envrc",
+                    format!(
+                        r#"
+                        export DIRENV_WARN_TIMEOUT=20s
+                        eval "$(devenv direnvrc)"
+                        use devenv
+                        "#
+                    ),
+                ),
+                (
+                    "devenv.nix",
+                    format!(
+                        r#"
+                    {{
+                    pkgs,
+                    lib,
+                    config,
+                    inputs,
+                    ...
+                    }}:
+
+                    {{
+                    env.GREET = "{name}";
+                    packages = [
+                        pkgs.git
+                    ];
+
+                    enterShell = ''
+                        git --version
+                    '';
+                    
+                    }}
+                    "#
+                    ),
+                ),
+            ]);
+
+            files.iter().for_each(|(file, data)| {
+                write(
+                    path.join(file),
+                    data.lines()
+                        .map(|l| l.trim_start())
+                        .collect::<Vec<_>>()
+                        .join("\n"),
+                )
+                .unwrap_or_else(|e| {
+                    bail(format!(
+                        "Failed to write {}: {e}",
+                        path.join(file).display()
+                    ));
+                })
+            });
+
+            println!(
+                "» {} {}{}{}",
+                format!("Template '{}' Created", name.bright_white().bold()).bright_cyan(),
+                "(".dimmed(),
+                path.display(),
+                ")".dimmed()
+            );
+        }
+
+        (Some(Command::Defaults), None) => {
+            create_defaults();
+            println!(
+                "» {} {}{}{}",
+                "Templates Created".bright_cyan(),
+                "(".dimmed(),
+                template_dir().display(),
+                ")".dimmed()
+            );
         }
     }
 }

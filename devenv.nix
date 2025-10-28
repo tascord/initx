@@ -13,7 +13,7 @@
     pkgs.lld
     pkgs.mold
     pkgs.rust-analyzer
-    pkgs.nodejs
+    pkgs.pre-commit
   ];
 
   languages.rust = {
