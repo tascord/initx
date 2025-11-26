@@ -222,7 +222,16 @@ fn main() {
                 args.name.unwrap_or_else(|| {
                     Input::with_theme(&ColorfulTheme::default())
                         .with_prompt("Project Name")
-                        .with_initial_text(vars.get("location").unwrap())
+                        .with_initial_text(
+                            current_dir()
+                                .unwrap()
+                                .as_path()
+                                .iter()
+                                .last()
+                                .unwrap()
+                                .display()
+                                .to_string(),
+                        )
                         .validate_with(|input: &String| -> Result<(), &str> {
                             if input.trim().is_empty() {
                                 Err("Name cannot be empty")
