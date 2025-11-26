@@ -197,9 +197,9 @@ fn main() {
 
         (None, Some(t)) => {
             let t = t.to_lowercase();
-            let template = TEMPLATES.iter().find(|template| {
-                template.alias.contains(&t) || template.name.to_lowercase() == t
-            });
+            let template = TEMPLATES
+                .iter()
+                .find(|template| template.alias.contains(&t) || template.name.to_lowercase() == t);
 
             if !args.force
                 && fs::read_dir(current_dir().expect("Couldn't get current directory"))
@@ -222,6 +222,7 @@ fn main() {
                 args.name.unwrap_or_else(|| {
                     Input::with_theme(&ColorfulTheme::default())
                         .with_prompt("Project Name")
+                        .with_initial_text(vars.get("location").unwrap())
                         .validate_with(|input: &String| -> Result<(), &str> {
                             if input.trim().is_empty() {
                                 Err("Name cannot be empty")
@@ -388,7 +389,8 @@ fn main() {
                         export DIRENV_WARN_TIMEOUT=20s
                         eval "$(devenv direnvrc)"
                         use devenv
-                        "#.to_string(),
+                        "#
+                    .to_string(),
                 ),
                 (
                     "devenv.nix",
